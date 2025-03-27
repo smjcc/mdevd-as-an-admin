@@ -1,0 +1,39 @@
+#!/bin/execlineb -P
+# SUBSYSTEM=rfkill;.* root:root 660 &/usr/lib/mdevd/rfkill
+#
+# act on rfkill state changes to enable/disable iwd
+
+multisubstitute {
+	define salute "^^^^"
+	importas -D "" -S MDEV
+#	importas -D "" -S DEVPATH
+	importas -D "" -S ACTION
+	importas -D "" -S RFKILL_TYPE
+	importas -D "" -S RFKILL_STATE
+	importas -D "" -S RFKILL_HW_BLOCK_REASON
+}
+
+if { eltest ${ACTION} = "change" }
+
+# log
+foreground { s6-echo "\n=== rfkill '${MDEV}' '${ACTION}' type: '${RFKILL_TYPE}' state: '${RFKILL_STATE}' reason '${RFKILL_HW_BLOCK_REASON}'" }
+
+# start and stop the iwd daemon when wlan is enabled/disabled
+case ${RFKILL_TYPE} {
+	bluetooth { s6-echo "bluetooth not emplimented yet\n${salute}" }
+	wlan {
+		case ${RFKILL_STATE} {
+			0 {
+				foreground { s6-svc -D /run/service/iwd }
+				s6-echo "stopped iwd service\n${salute}"
+			}
+			1 {
+				foreground { s6-svc -U /run/service/iwd }
+				s6-echo "started iwd service\n${salute}"
+			}
+		}
+		s6-echo "rfkill: unknown wlan state: ${RFKILL_STATE}\n${salute}"
+	}
+}
+s6-echo "rfkill: unknown type '${RFKILL_TYPE}'\n${salute}"
+
