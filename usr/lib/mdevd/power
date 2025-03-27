@@ -1,0 +1,82 @@
+#!/bin/execlineb -P
+# SUBSYSTEM=power_supply;.* root:root 660 &/usr/lib/mdevd/power
+#
+# handle power events (cpu clock, display brightness)
+#
+# this currently set display brightness and cpu governor when AC power changes
+# AC-on: fast bright  AC-off slow dim
+
+multisubstitute {
+	define salute "^^^^"
+	define BRIGHT 300
+	define DIM 75
+	define backlight intel_backlight
+#	define backlight acpi_video0
+	# add change remove
+	importas -D "" -S ACTION
+	# AC BAT0 hwmon2
+	importas -D "" -S MDEV
+	# AC BAT0
+	importas -D "" -S POWER_SUPPLY_NAME
+	#importas -D "" -S DEVPATH
+	# power_supply
+	importas -D "" -S DEVTYPE
+	# 0 1
+	importas -D "" -S POWER_SUPPLY_ONLINE
+}
+
+# log
+foreground { s6-echo "\n=== power '${MDEV}' '${ACTION}' '${DEVTYPE}' '${POWER_SUPPLY_NAME}':'${POWER_SUPPLY_ONLINE}'" }
+
+#only interested in AC power events at this time
+if { eltest AC = ${MDEV} }
+
+case ${POWER_SUPPLY_ONLINE} {
+	0 {
+		#run slow and dim if not on AC power (presumed on battery)
+		foreground { s6-echo "dim = ${DIM}" }
+		foreground {
+			redirfd -w 1 /sys/class/backlight/${backlight}/brightness
+			s6-echo "${DIM}"
+		}
+		elglob scalgov /sys/devices/system/cpu/cpufreq/policy*/scaling_governor
+		forx -E gov { ${scalgov} }
+		foreground { s6-echo "powersave -> '${gov}'" }
+		redirfd -w 1 ${gov}
+		s6-echo "powersave\n${salute}"
+	}
+	1 {
+		#run fast and bright if on AC power
+		foreground { s6-echo "bright = ${BRIGHT}" }
+		foreground {
+			redirfd -w 1 /sys/class/backlight/${backlight}/brightness
+			s6-echo "${BRIGHT}"
+		}
+		elglob scalgov /sys/devices/system/cpu/cpufreq/policy*/scaling_governor
+		forx -E gov { ${scalgov} }
+		foreground { s6-echo "performance -> '${gov}'" }
+		redirfd -w 1 ${gov}
+		s6-echo "performance\n${salute}"
+	}
+}
+s6-echo "unknown power supply state '${POWER_SUPPLY_ONLINE}'\n${salute}"
+
+#POWER_SUPPLY_CAPACITY=95
+#POWER_SUPPLY_CAPACITY_LEVEL=Normal
+#POWER_SUPPLY_CHARGE_FULL=8475000
+#POWER_SUPPLY_CHARGE_FULL_DESIGN=9000000
+#POWER_SUPPLY_CHARGE_NOW=8062000
+#POWER_SUPPLY_CURRENT_NOW=1000
+#POWER_SUPPLY_CYCLE_COUNT=0
+#POWER_SUPPLY_MANUFACTURER=SMP
+#POWER_SUPPLY_MODEL_NAME=DELL W11Y75A
+#POWER_SUPPLY_PRESENT=1
+#POWER_SUPPLY_STATUS=Discharging
+#POWER_SUPPLY_STATUS=Not charging
+#POWER_SUPPLY_TECHNOLOGY=Li-ion
+#POWER_SUPPLY_TYPE=Battery
+#POWER_SUPPLY_TYPE=Mains
+#POWER_SUPPLY_VOLTAGE_MIN_DESIGN=11100000
+#POWER_SUPPLY_VOLTAGE_NOW=12455000
+#SUBSYSTEM=hwmon
+#SUBSYSTEM=power_supply
