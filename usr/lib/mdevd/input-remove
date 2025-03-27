@@ -1,0 +1,38 @@
+#!/bin/execlineb -P
+# SUBSYSTEM=input;.* root:input 660 +/usr/lib/mdevd/catch-add -/usr/lib/mdevd/catch-remove
+
+# doggy: TODO: /dev/input/by-path/
+# e.g. /dev/input/by-path/platform-i8042-serio-1-event-mouse
+
+multisubstitute {
+	importas -D "" -S MDEV
+	importas -D "" -S DEVPATH
+}
+
+# ==== LOG START OF SCRIPT ====
+foreground { s6-echo "\n=== input-remove '${MDEV}'" }
+
+# doggy:
+foreground { s6-echo "  env:" }
+foreground { env }
+foreground { s6-echo "  env-end" }
+
+# remove all orphaned /dev/input/*/* links
+foreground {
+	elglob links /dev/input/*/*
+	forx -E -x 77 link { ${links} }
+	if -n -t {
+		redirfd -w 1 /dev/null
+		fdmove -c 2 1
+		readlink -e ${link}
+	}
+	foreground { rm -v ${link} }
+}
+# remove all empty /dev/disk/by-* directories
+foreground {
+	elglob bydirs /dev/input/*/
+	redirfd -w 2 /dev/null
+	rm -dv ${bydirs}
+}
+
+s6-echo "^^^^"

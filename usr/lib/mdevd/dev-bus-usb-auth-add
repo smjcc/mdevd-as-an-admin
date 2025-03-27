@@ -1,0 +1,85 @@
+#!/bin/execlineb -P
+#SUBSYSTEM=usb;DEVTYPE=usb_device;.* root:root 660 +/usr/lib/mdevd/dev-bus-usb-auth-add
+#
+# * authorize if in /etc/usbauth
+# * create /dev/bus/usb devices.
+
+multisubstitute {
+	define salute "^^^^"
+	define execsalute "----"
+#	importas -D "" -S ACTION
+	importas -D "" -S MDEV
+	importas -D "" -S DEVPATH
+	importas -D "" -S BUSNUM
+	importas -D "" -S DEVNUM
+	importas -D "" -S MAJOR
+	importas -D "" -S MINOR
+}
+
+#execline-umask 022
+execline-umask 0027
+
+foreground { s6-echo "\n=== dev-bus-usb-auth-add '${MDEV}'" }
+
+# sanity check: likely unneeded, remove?
+ifelse -n { eltest -r /sys/${DEVPATH}/idVendor } {
+	s6-echo "cannot read file /sys/${DEVPATH}/idVendor\n${salute}"
+}
+ifelse -n { eltest -r /sys/${DEVPATH}/idProduct } {
+	s6-echo "cannot read file /sys/${DEVPATH}/idProduct\n${salute}"
+}
+
+redirfd -r 0 /sys/${DEVPATH}/idVendor
+withstdinas -D "" -E idVendor
+redirfd -r 0 /sys/${DEVPATH}/idProduct
+withstdinas -D "" -E idProduct
+
+# Authorize usb device if in /etc/usbauth
+foreground {
+	# sanity check: likely unneeded, remove?
+	ifelse -n { eltest -f /sys/${DEVPATH}/authorized } {
+		s6-echo "WARNING: no file /sys/${DEVPATH}/authorize for device ${idVendor}:${idProduct}\n${salute}"
+	}
+
+	# already authorized?
+	ifelse -n { grep -q ^0$ /sys/${DEVPATH}/authorized } {
+		s6-echo "USB device ${MDEV} '${idVendor}:${idProduct}' already authorized"
+	}
+
+	backtick -D "" -E manufacturer {
+		if { eltest -r /sys/${DEVPATH}/manufacturer }
+		cat /sys/${DEVPATH}/manufacturer
+	}
+	backtick -D "" -E product {
+		if { eltest -r /sys/${DEVPATH}/product }
+		cat /sys/${DEVPATH}/product
+	}
+	backtick -D "" -E serial {
+		if { eltest -r /sys/${DEVPATH}/serial }
+		cat /sys/${DEVPATH}/serial
+	}
+	# descriptors may change if plugged through a hub or suspicious cable
+	backtick -D "" -E descriptors {
+		pipeline { sha1sum /sys/${DEVPATH}/descriptors }
+		sed -e "s/ .*$//"
+	}
+
+	# check if listed in /etc/usbauth to authorize
+	ifelse -X { grep ${idVendor}:${idProduct},${serial},${manufacturer},${product},${descriptors} /etc/usbauth } {
+		# authorize this device
+		foreground {
+			redirfd -w 1 /sys/${DEVPATH}/authorized
+			s6-echo "1"
+		}
+		s6-echo "USB device ${idVendor}:${idProduct} now authorized"
+	}
+	# log unauthorized device data to ease copying to /etc/usbauth
+	foreground { s6-echo "DEVPATH = '${DEVPATH}'" }
+	s6-echo "unauthorized: '${MDEV} ${idVendor}:${idProduct},${serial},${manufacturer},${product},${descriptors}'"
+}
+
+ifelse { eltest -x /usr/lib/mdevd/${idVendor}:${idProduct} } {
+	foreground { s6-echo "exec /usr/lib/mdevd/${idVendor}:${idProduct}\n${execsalute}" }
+	/usr/lib/mdevd/${idVendor}:${idProduct}
+}
+s6-echo "${salute}"

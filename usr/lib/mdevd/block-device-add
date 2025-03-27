@@ -1,0 +1,395 @@
+#!/bin/execlineb -P
+# -SUBSYSTEM=block;.* root:disk 660 +/usr/lib/mdevd/block-device-add
+# SUBSYSTEM=block;.* root:disk 660 -/usr/lib/mdevd/block-device-remove
+
+# * creates /dev/disk/by-* and /dev/mapper/* symlinks.
+# * encrypted partitions: attempts cryptsetup via 'yad' (if X11)
+# * mountable partitions: create dir in /media/ and entry in /etc/fstab
+
+# fstabsig is for tagging our automatic entries to /etc/fstab for later deletion
+
+# new_read_ahead_kb is a kernel parameter for the block device
+
+# TODO: try to make disk/by-id and disk/by-path symlinks 'udev compatible'
+
+multisubstitute {
+	define ABORTED "=== ABORTED DECRYPTION ==="
+	define INVALID "=== INVALID PASSWORD ==="
+	define delay 10
+	define new_read_ahead_kb 2048
+	define fstabsig "smjmount"
+	define salute "^^^^"
+	define execsalute "----"
+
+#	importas -D "" -S ACTION
+	importas -D "" -S MDEV
+	importas -D "" -S DEVPATH
+	importas -D "" -S MAJOR
+	importas -D "" -S MINOR
+}
+
+execline-umask 077
+
+# to stop 'yad' from launching dbus
+export NO_AT_BRIDGE "1"
+
+# the display to get passwords from via 'yad'
+export DISPLAY ":0"
+
+# the user ID of X11 (to run yad as)
+backtick -E user {
+	if -t { eltest -f /tmp/.X0-lock }
+	stat /tmp/.X0-lock -c %U
+}
+
+# ==== LOG START OF SCRIPT ====
+foreground { s6-echo "\n=== block-device-add '${MDEV}'" }
+#foreground { s6-echo "${DEVPATH}" }
+
+# set_readahead
+foreground {
+	define ra_kb_ctl "/sys/${DEVPATH}/queue/read_ahead_kb"
+	if -t { eltest -r "${ra_kb_ctl}" }
+	redirfd -r 0 "${ra_kb_ctl}"
+	withstdinas -E ra_kb
+	if -t { eltest "${ra_kb}" -lt "${new_read_ahead_kb}" }
+	foreground { s6-echo "Changing ${MDEV} read_ahead_kb from ${ra_kb} to ${new_read_ahead_kb}" }
+	redirfd -w 1 "${ra_kb_ctl}"
+	s6-echo -n "${new_read_ahead_kb}"
+}
+
+# if a dm device, get the dm name
+backtick -E dmname {
+	if -t { eltest -r "/sys/${DEVPATH}/dm/name" }
+	cat /sys/${DEVPATH}/dm/name
+}
+
+# get the destination of /dev/disk/by- symlinks
+backtick -E linkdest {
+	ifelse { eltest ${dmname} } {
+		s6-echo "../../mapper/${dmname}"
+	}
+	s6-echo "../../${MDEV}"
+}
+
+# create the /dev/disk/by-diskseq symlink
+foreground {
+	if -t { eltest -r /sys/${DEVPATH}/diskseq }
+	backtick -E diskseq { cat /sys/${DEVPATH}/diskseq }
+	foreground { execline-umask 022 mkdir -p "/dev/disk/by-diskseq" }
+	ln -vsnf "${linkdest}" "/dev/disk/by-diskseq/${diskseq}"
+}
+
+# Collect data to build the '/dev/disk/by-id' and '/dev/disk/by-path' symlinks
+
+# get /sys path of parent device if a partition
+backtick -E sysdev {
+	ifelse { eltest -r /sys/${DEVPATH}/partition } {
+		s6-echo "/sys/${DEVPATH}/../device"
+	}
+	s6-echo "/sys/${DEVPATH}/device"
+}
+
+# get parent device name if a partition
+backtick -E PDEV {
+	ifelse { eltest -r /sys/${DEVPATH}/partition } {
+		heredoc 0 ${DEVPATH}
+		sed -e "s:/[^/]*$::" -e "s:^.*/::"
+	}
+	s6-echo "${MDEV}"
+}
+
+backtick -E diskid {
+	# TRANSPORT
+	backtick -E transport {
+		lsblk -nd /dev/${PDEV} -o "TRAN"
+	}
+	# build id from VENDOR MODEL NAME REV SERIAL WWID
+	backtick -E id {
+		pipeline {
+			# other potential keys: hwrev fwrev cid csd
+			forx -E key { vendor model name rev serial wwid }
+			if -t { eltest -r ${sysdev}/${key} }
+			redirfd -w 2 /dev/null
+			cat ${sysdev}/${key}
+		}
+		pipeline { tr "\n" "-" }
+		sed -e "s:  *: :g" -e "s:[ /\\\\]:_:g" -e "s:\\([_-]\\)[_-]*:\\1:g" -e "s:[_-]$::"
+	}
+	# no diskid if no id
+	if -t { eltest ${id} }
+
+	# now build the full name of the symlink
+	foreground { if -t { eltest "${transport}" } s6-echo -n ${transport}- }
+	foreground { s6-echo -n ${id} }
+	if -t { eltest -r /sys/${DEVPATH}/partition }
+	foreground { s6-echo -n -- "-part" }
+	cat /sys/${DEVPATH}/partition
+}
+
+# CREATE '/dev/disk/by-id' SYMLINK
+foreground {
+	if -t { eltest ${diskid} }
+	foreground { execline-umask 022 mkdir -p "/dev/disk/by-id" }
+	ifelse -n { eltest -e "/dev/disk/by-id/${diskid}" } {
+		ln -vsnf "${linkdest}" "/dev/disk/by-id/${diskid}"
+	}
+	#bug in elglob if -0 used here
+	elglob -s -n -d \\ lnks "/dev/disk/by-id/${diskid}*"
+	backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }
+	ln -vsnf "${linkdest}" "${lnk}_"
+}
+
+# CREATE '/dev/disk/by-path' SYMLINK
+foreground {
+	backtick -E dp {
+		if -n { eltest ${DEVPATH} =~ /virtual/ }
+		heredoc 0 ${DEVPATH}
+		sed -e "s:^/devices/::"
+		-e "s:/block/.*$::"
+		-e "s:^pci[^/]*/\\([^/]*\\)/[^a-z]*\\([a-z]\\):pci-\\1/\\2:"
+		-e "s:/\\(usb\\|ata\\).*host.*target[^/]*/:/\\1-:"
+		#-e "s:/\\(usb\\|ata\\|\\).*host.*target[^/]*/:/\\1-:"
+		-e "s:/:-:g"
+		#-e "s:^-::"
+	}
+	backtick -E diskpath {
+		foreground { s6-echo -n -- "${dp}" }
+		if -t { eltest -r /sys/${DEVPATH}/partition }
+		foreground { s6-echo -n -- "-part" }
+		cat /sys/${DEVPATH}/partition
+	}
+	foreground { execline-umask 022 mkdir -p "/dev/disk/by-path" }
+	ifelse -n { eltest -e "/dev/disk/by-path/${diskpath}" } {
+		ln -vsnf "${linkdest}" "/dev/disk/by-path/${diskpath}"
+	}
+	ifelse -n { eltest -e "/dev/disk/by-path/${diskpath}_" } {
+		ln -vsnf "${linkdest}" "/dev/disk/by-path/${diskpath}_"
+	}
+	#bug in elglob if -0 used here
+	elglob -s -n -d \\ lnks "/dev/disk/by-path/${diskpath}_*"
+	backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }
+	ln -vsnf "${linkdest}" "${lnk}_"
+}
+
+# GET BLKID DATA FOR THIS DEVICE INTO LOCAL VARIABLES.
+
+backtick -E blkid {
+	foreground { /sbin/blkid /dev/${MDEV} -d -o export }
+	# to avoid using -I in the root block, making $? unavailable henceforth
+	true
+}
+ifelse -n { eltest -n ${blkid} } {
+	foreground { s6-echo "device has no blkid data" }
+	ifelse { eltest ${diskid} -a -x /usr/lib/mdevd/${diskid} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/${diskid}\n${execsalute}" }
+		/usr/lib/mdevd/${diskid}
+	}
+	ifelse { eltest -x /usr/lib/mdevd/${MDEV} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/${MDEV}\n${execsalute}" }
+		/usr/lib/mdevd/${MDEV}
+	}
+	s6-echo "${salute}"
+}
+backtick -E keys {
+	heredoc 0 ${blkid}
+	sed -e "s:=.*$::"
+}
+backtick -E values {
+	heredoc 0 ${blkid}
+	sed -e "s:^.*=::" -e "s:ntfs$:ntfs3:"
+}
+define -d "\n" -s splitkeys ${keys}
+multidefine -d "\n" ${values} { ${splitkeys} }
+
+# CREATE remaining '/dev/disk/by-' SYMLINKS
+
+# create by-key links for BLKID keys containing LABEL ID or MAGIC
+foreground {
+	# this -I consumes all ${?} in this foreground block
+	backtick -I -E lnkid {
+		heredoc 0 ${blkid}
+		grep LABEL\\|ID\\|MAGIC
+	}
+	define -d "\n" -s splitlnkid ${lnkid}
+
+	forx -E pair { ${splitlnkid} }
+	multidefine -d = ${pair} { keyupper value }
+	backtick -E key { heredoc 0 ${keyupper} tr A-Z a-z }
+	foreground { execline-umask 022	mkdir -p "/dev/disk/by-${key}" }
+	# append underscores to names to avoid collision
+	ifelse { eltest -e "/dev/disk/by-${key}/${value}" } {
+		#bug in elglob if -0 used here
+		elglob -s -n -d \\ lnks "/dev/disk/by-${key}/${value}*"
+		backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }
+		ln -vsnf "${linkdest}" "${lnk}_"
+	}
+	ln -vsnf "${linkdest}" "/dev/disk/by-${key}/${value}"
+}
+
+# if device is already in use, do not continue
+ifelse { redirfd -w 1 /dev/null	findmnt -nfo source /dev/${MDEV} } {
+	s6-echo "already mounted\n${salute}"
+}
+ifelse { elglob -0 holders /sys/${DEVPATH}/holders/* eltest ${holders} } {
+	s6-echo "already in use\n${salute}"
+}
+ifelse { grep -q "^/dev/\\(${MDEV}\\|mapper/${dmname}\\)[[:space:]]" /etc/fstab } {
+	s6-echo "already listed in /etc/fstab\n${salute}"
+}
+
+# if device has no TYPE in blkid, just run the script if present
+ifelse { eltest "${TYPE}" = "\\${TYPE}" } {
+	# no type. If /usr/lib/mdevd/${MDEV}, exec
+	ifelse { eltest ${diskid} -a -x /usr/lib/mdevd/${diskid} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/${diskid}\n${execsalute}" }
+		/usr/lib/mdevd/${diskid}
+	}
+	ifelse { eltest -x /usr/lib/mdevd/${MDEV} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/${MDEV}\n${execsalute}" }
+		/usr/lib/mdevd/${MDEV}
+	}
+	s6-echo "device '${MDEV}' has no TYPE defined in blkid\n${salute}"
+}
+
+# CREATE ENTRIES IN /etc/fstab FOR MOUNTABLE FILESYSTEMS
+
+# ACTIVATE SWAP IF MENTIONED IN /etc/fstab
+
+ifelse { eltest ${TYPE} = "swap" } {
+	foreground { s6-echo "swap partition" }
+	redirfd -w 2 /dev/null
+	foreground { swapon -av -T /etc/fstab.boot }
+	s6-echo "${salute}"
+}
+
+# if a mapped device, get the mapped device name (prefered)
+backtick -E mappeddevice {
+	ifelse { eltest ${dmname} } {
+		s6-echo -n /dev/mapper/${dmname}
+	}
+	s6-echo "/dev/${MDEV}"
+}
+
+# check if TYPE is a mountable filesystem, if so...
+# CREATE AN /etc/fstab ENTRY, and a /media/ MOUNTPOINT
+
+ifelse { grep -q "\t${TYPE}$" /proc/filesystems } {
+	foreground { s6-echo "found a mountable filesystem '${TYPE}'" }
+	# mountpoint will be /media/LABEL or /media/PARTLABEL or /media/UUID
+	#      or /media/${PARTUUID} or /media/${mappeddevice}
+	backtick -E mpoint {
+		ifelse -n { eltest "${LABEL}" = "\\${LABEL}" } {
+			s6-echo "${LABEL}"
+		}
+		ifelse -n { eltest "${PARTLABEL}" = "\\${PARTLABEL}" } {
+			s6-echo "${PARTLABEL}"
+		}
+		ifelse -n { eltest "${UUID}" = "\\${UUID}" } {
+			s6-echo "${UUID}"
+		}
+		ifelse -n { eltest "${PARTUUID}" = "\\${PARTUUID}" } {
+			s6-echo "${PARTUUID}"
+		}
+		basename "${mappeddevice}"
+	}
+	backtick -E mountpoint {
+		ifelse { eltest -e "/media/${mpoint}" } {
+			#bug in elglob if -0 used here
+			elglob -s -n -d \\ mpts "/media/${mpoint}*"
+			backtick -E mpt { heredoc 0 ${mpts} sed -e s:^.*\\\\:: }
+			s6-echo "${mpt}_"
+		}
+		s6-echo "${mpoint}"
+	}
+	ifelse -n { mkdir -v -p -m 0 /media/${mountpoint} } {
+		# abort if problem making the mount point
+		s6-echo "failed mkdir -v -p -m 0 /media/${mountpoint}\n${salute}"
+	}
+	#replace tabs and spaces in mountpoint for fstab entry per fstab(5)
+	backtick -E mountspace {
+		heredoc 0 ${mountpoint}
+		sed -e s:" ":\\\\040:g -e s:"	":\\\\011:g
+	}
+	# append an entry to /etc/fstab for this device
+	# replace ${type} with auto? might use ntfs-3g instead of ntfs3
+	foreground {
+		redirfd -a 1 /etc/fstab
+		s6-echo "${mappeddevice} /media/${mountspace} ${TYPE} user,rw,relatime,noauto,noexec,nosuid,nodev 0 0 #${fstabsig}-${MDEV}"
+	}
+	foreground { s6-echo "added entry to fstab\n${salute}" }
+}
+
+# check if TYPE is crypto_LUKS...
+ifelse -n { eltest ${TYPE} = "crypto_LUKS" } {
+	s6-echo "device has unrecognized type '${TYPE}' in blkid"
+	ifelse { eltest ${diskid} -a -x /usr/lib/mdevd/${diskid} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/${diskid}\n${execsalute}" }
+		/usr/lib/mdevd/${diskid}
+	}
+	ifelse { eltest -x /usr/lib/mdevd/${MDEV} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/${MDEV}\n${execsalute}" }
+		/usr/lib/mdevd/${MDEV}
+	}
+	s6-echo "${salute}"
+}
+
+# if X11 not running make uevent plugdev writable to be triggered later
+# by echo 'add' >/sys/block/${MDEV}/uevent
+ifelse -n { eltest ${user} } {
+	foreground { chgrp plugdev /sys/${DEVPATH}/uevent }
+	foreground { chmod g+w /sys/${DEVPATH}/uevent }
+	s6-echo "found '${TYPE}', but no X running: made uevent group-writable\n${salute}"
+}
+
+# X11 RUNNING, GET PASSWORD (in background) TO DECRYPT FROM USER VIA 'yad'
+
+foreground { chgrp root /sys/${DEVPATH}/uevent }
+foreground { chmod g-w /sys/${DEVPATH}/uevent }
+foreground { s6-echo "launching cryptsetup in background" }
+background {
+	piperw 7 8
+	ifelse -n {
+		fdmove 1 8
+		redirfd -w 2 /dev/null
+		s6-setuidgid ${user}
+		yad --entry --hide-text --title "Decrypt ${mappeddevice}"
+	} {
+		fdclose 8
+		fdclose 7
+		foreground { s6-echo -- "(backgrounded) passwd abort '${mappeddevice}'" }
+		foreground { chmod g+w /sys/${DEVPATH}/uevent }
+		backtick -E hdrlen { heredoc 0 ${ABORTED} wc -c }
+		define msg "of device ${mappeddevice}"
+		backtick -E msglen { heredoc 0 ${msg} wc -c }
+		backtick -E padlen { expr ( ${hdrlen} - ${msglen} + 4 ) / 2 }
+		backtick -E pad { printf %${padlen}s }
+		pipeline { s6-echo "${ABORTED}	${pad}${msg}${pad}" }
+		s6-setuidgid ${user} xnotify -s ${delay}
+	}
+	fdclose 8
+	ifelse {
+		fdmove 0 7
+		/sbin/cryptsetup --allow-discards luksOpen /dev/${MDEV} ${fstabsig}-${MDEV} -
+	} {
+		fdclose 7
+		foreground { s6-echo "device ${mappeddevice} successfully decrypted" }
+		pipeline { s6-echo "device ${mappeddevice} successfully decrypted" }
+		xnotify -s 10
+	}
+	fdclose 7
+	foreground { s6-echo -- "(backgrounded) passwd retry '${mappeddevice}'" }
+	foreground {
+		backtick -E hdrlen { heredoc 0 ${INVALID} wc -c }
+		define msg "for ${mappeddevice}, try again"
+		backtick -E msglen { heredoc 0 ${msg} wc -c }
+		backtick -E padlen { expr ( ${hdrlen} - ${msglen} + 4 ) / 2 }
+		backtick -E pad { printf %${padlen}s }
+		pipeline { s6-echo "${INVALID}	${pad}${msg}${pad}" }
+		s6-setuidgid ${user} xnotify -s 0
+	}
+	# trigger adding the device again
+	redirfd -w 1 /sys/${DEVPATH}/uevent
+	s6-echo "add"
+}
+s6-echo -- "${execsalute}"

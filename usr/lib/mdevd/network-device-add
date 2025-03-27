@@ -1,0 +1,101 @@
+#!/bin/execlineb -P
+# -SUBSYSTEM=net;DEVPATH=.*/net/.*;.*     root:root 600 +/usr/lib/mdevd/network-device-add
+#
+# this script uses /etc/mactab as defined by sys-apps/net-tools:nameif
+# three new optional fields are added, for a total of five fields:
+#
+# NAME    MAC    NEWMAC    IP    GATEWAY
+#
+# this script will not write to /etc/mactab.
+# if NEWMAC is 'random', macchanger -a will be invoked
+# DOGGY: dhcpcd is not tested yet
+# if IP is 'dhcpcd' then 's6-svc -U /run/service/dhcpcd' will be invoked
+
+#foreground { redirfd -w 1 /tmp/network-device.env env }
+
+multisubstitute {
+	define salute "^^^^"
+	define execsalute "----"
+	importas -S -D "" DEVPATH
+	importas -S -D "" INTERFACE
+}
+
+redirfd -r 0 /sys/${DEVPATH}/address
+withstdinas -E mac
+
+foreground { s6-echo "\n=== network-device-add '${INTERFACE}' '${mac}'" }
+
+# if no MAC address, look for special config file
+ifelse -n { eltest ${mac} } {
+	ifelse { eltest -x /usr/lib/mdevd/network-device/${INTERFACE} } {
+		foreground { s6-echo "execing /usr/lib/mdevd/network-device/${INTERFACE}\n${execsalute}" }
+		/usr/lib/mdevd/network-device/${INTERFACE}
+	}
+	s6-echo "interface '${INTERFACE}' has no MAC\n${salute}"
+}
+
+backtick -I -E mactab {
+	sed -e "/^#/d" -e "/^[^ \t]*[ \t]*${mac}/!d" -e "s=[ \t][ \t]*= =g" /etc/mactab
+}
+multidefine ${mactab} { newname oldmac newmac ip gateway }
+#foreground { s6-echo "mactab: '${newname}' '${oldmac}' '${newmac}' '${ip}' '${gateway}'" }
+
+ifelse -n { eltest $newname } {
+	ifelse { eltest "lo" = ${INTERFACE} } {
+		foreground { ip addr add 127.0.0.1/8 dev lo }
+		foreground { ip link set lo up }
+		s6-echo "127.0.0.1/8 assigned to dev lo\n${salute}"
+	}
+	s6-echo "interface MAC '${mac}' not found in /etc/mactab\n${salute}"
+}
+
+foreground { s6-echo "newname '${newname}'" }
+foreground { ip link set ${INTERFACE} down }
+foreground { ifconfig -v ${INTERFACE} name ${newname} }
+foreground {
+	if { eltest ${newmac} }
+	if -n { eltest "${newmac}" = "${mac}" }
+	if -n { eltest "${newmac}" = "nochange" }
+	foreground { s6-echo "NEWMAC '${newmac}'" }
+	ifelse { eltest "${newmac}" = "random" } {
+		/sbin/macchanger -a ${newname}
+	}
+	ip link set dev ${newname} address ${newmac}
+}
+
+# run script unique to this interface, if any
+# (script is run with interface down)
+foreground {
+	if { eltest -x /usr/lib/mdevd/network-device/${newname} }
+	foreground { s6-echo "running /usr/lib/mdevd/network-device/${newname}\n${execsalute}" }
+	foreground { /usr/lib/mdevd/network-device/${newname} }
+	s6-echo "(returned)"
+}
+
+#note that interface is left down if no ${ip} is specified
+ifelse -n { eltest ${ip} } {
+	s6-echo "no IP field in /etc/mactab\n${salute}"
+}
+
+# set/get IP
+foreground {
+	foreground { s6-echo "IP '${ip}'" }
+	ifelse { eltest "dhcpcd" = "${ip}" } {
+		foreground { s6-echo "starting dhcpcd service" }
+		s6-svc -U /run/service/dhcpcd
+	}
+	ip -h -s -d -echo addr add ${ip} dev ${newname} brd +
+}
+foreground { ip -h -s -d -echo link set ${newname} up }
+
+ifelse -n { eltest -n ${gateway} } {
+	s6-echo "no gateway field in /etc/mactab\n${salute}"
+}
+ifelse { eltest dhcpcd = ${gateway} } {
+	foreground { s6-svc -U /run/service/dhcpcd }
+	s6-echo "started dhcpcd service\n${salute}"
+}
+foreground { s6-echo "GATEWAY '${gateway}'" }
+foreground { ip route add default via ${gateway} }
+s6-echo "${salute}"
+

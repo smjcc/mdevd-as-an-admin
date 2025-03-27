@@ -1,0 +1,68 @@
+#!/bin/execlineb -P
+# SUBSYSTEM=input;.* root:input 660 +/usr/lib/mdevd/catch-add
+
+multisubstitute {
+	importas -D "" -S MDEV
+	importas -D "" -S DEVPATH
+}
+
+# ==== LOG START OF SCRIPT ====
+foreground { s6-echo "\n=== input-add '${MDEV}'" }
+foreground { s6-echo "  ${DEVPATH}" }
+
+backtick -E DEV {
+	heredoc 0 ${MDEV}
+	sed -e "\\=^input/=!d" -e "s:^input/::"
+}
+
+# CREATE '/dev/input/by-path' symlink
+foreground {
+	backtick -E inputpath {
+		heredoc 0 ${DEVPATH}
+		sed -e "s:^/devices/::"
+		-e "s:virtual-input:virtual:"
+		-e "s:/:-:g"
+	}
+	foreground { execline-umask 022 mkdir -p "/dev/input/by-path" }
+	backtick -E dev {
+		heredoc 0 ${MDEV}
+		sed -e "s:^input/::"
+	}
+	ln -vsnf "../${DEV}" "/dev/input/by-path/${inputpath}"
+}
+
+# construct inputid
+backtick -E inputid {
+	pipeline {
+		forx -E key { id/product id/vendor id/version id/bustype name }
+		if -t { eltest -r /sys/${DEVPATH}/device/${key} }
+		redirfd -w 2 /dev/null
+		cat /sys/${DEVPATH}/device/${key}
+	}
+	pipeline { tr "\n" "-" }
+	sed -e "s:  *: :g" -e "s:[ /\\\\]:_:g" -e "s:\\([_-]\\)[_-]*:\\1:g" -e "s:[_-]$::"
+}
+
+ifelse -n { eltest ${inputid} } {
+	if { eltest -x /usr/lib/mdevd/${DEV} }
+	foreground { s6-echo "execing: /usr/lib/mdevd/${DEV}\n----" }
+	/usr/lib/mdevd/${DEV}
+}
+
+# CREATE '/dev/input/by-id' symlink
+foreground {
+	foreground { execline-umask 022 mkdir -p "/dev/input/by-id" }
+	ifelse -n { eltest -e /dev/input/by-id/${inputid} } {
+		ln -vsnf "../${DEV}" "/dev/input/by-id/${inputid}"
+	}
+	#bug in elglob if -0 used here
+	elglob -s -n -d \\ lnks "/dev/input/by-id/${inputid}*"
+	backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }
+	ln -vsnf "../${DEV}" "${lnk}_"
+}
+
+ifelse { eltest -x /usr/lib/mdevd/${inputid} } {
+	foreground { s6-echo "execing: /usr/lib/mdevd/${inputid}\n----" }
+	/usr/lib/mdevd/${inputid}
+}
+s6-echo "^^^^"

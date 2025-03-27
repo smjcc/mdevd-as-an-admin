@@ -1,0 +1,7 @@
+# an example of the /etc/mactab file
+
+left            00:1a:fb:76:cb:3d	random
+right           f4:44:50:2d:bb:d1	random
+bridge		00:01:02:03:04:05	random	dhcpcd
+dock            00:07:dc:3d:ed:c7	c0:ff:ee:c0:ff:ee	192.168.0.22/24 192.168.0.1
+wifi            00:12:f3:c2:d5:c5	de:c1:a5:51:f1:ed
