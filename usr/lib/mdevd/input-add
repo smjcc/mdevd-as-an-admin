@@ -1,5 +1,5 @@
 #!/bin/execlineb -P
-# SUBSYSTEM=input;.* root:input 660 +/usr/lib/mdevd/catch-add
+# SUBSYSTEM=input;.* root:input 660 +/usr/lib/mdevd/input-add
 
 multisubstitute {
 	importas -D "" -S MDEV
@@ -44,9 +44,9 @@ backtick -E inputid {
 }
 
 ifelse -n { eltest ${inputid} } {
-	if { eltest -x /usr/lib/mdevd/${DEV} }
-	foreground { s6-echo "execing: /usr/lib/mdevd/${DEV}\n----" }
-	/usr/lib/mdevd/${DEV}
+	if { eltest -x /usr/lib/mdevd/input/${DEV} }
+	foreground { s6-echo "execing: /usr/lib/mdevd/input/${DEV}\n----" }
+	/usr/lib/mdevd/input/${DEV}
 }
 
 # CREATE '/dev/input/by-id' symlink
@@ -61,8 +61,8 @@ foreground {
 	ln -vsnf "../${DEV}" "${lnk}_"
 }
 
-ifelse { eltest -x /usr/lib/mdevd/${inputid} } {
-	foreground { s6-echo "execing: /usr/lib/mdevd/${inputid}\n----" }
-	/usr/lib/mdevd/${inputid}
+ifelse { eltest -x /usr/lib/mdevd/input/${inputid} } {
+	foreground { s6-echo "execing: /usr/lib/mdevd/input/${inputid}\n----" }
+	/usr/lib/mdevd/input/${inputid}
 }
 s6-echo "^^^^"
