@@ -1,0 +1,6 @@
+#!/bin/execlineb -P
+# .* root:root 660 &/usr/lib/mdevd/catch-all
+# A catch-all script which will be executed for all not-configured devices in /etc/mdevd.conf
+foreground { s6-echo "vvvvv CATCH-ALL vvvvv" }
+foreground { env }
+s6-echo "^^^^^ CATCH-ALL ^^^^^"
