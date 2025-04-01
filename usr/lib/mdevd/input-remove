@@ -1,9 +1,6 @@
 #!/bin/execlineb -P
 # SUBSYSTEM=input;.* root:input 660 -/usr/lib/mdevd/input-remove
 
-# doggy: TODO: /dev/input/by-path/
-# e.g. /dev/input/by-path/platform-i8042-serio-1-event-mouse
-
 multisubstitute {
 	importas -D "" -S MDEV
 	importas -D "" -S DEVPATH
