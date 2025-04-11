@@ -51,8 +51,10 @@ foreground {
 		foreground { dmsetup -v remove --deferred /dev/${master} }
 		# if X, report mounted yank
 		if { eltest -n ${user} }
-		pipeline { s6-echo "===== WARNING =====	device '${MDEV}' was still mounted (encrypted) when removed" }
-		s6-setuidgid ${user} xnotify -s 0
+		background {
+			pipeline { s6-echo "===== WARNING =====	device '${MDEV}' was still mounted (encrypted) when removed" }
+			s6-setuidgid ${user} xnotify -s 0
+		}
 	}
 	# not a slave, mounted?
 	if { redirfd -w 1 /dev/null findmnt -no target /dev/${MDEV} }
@@ -60,8 +62,10 @@ foreground {
 	foreground { umount -v -A -l /dev/${MDEV} }
 	# if X, report mounted yank
 	if { eltest -n ${user} }
-	pipeline { s6-echo "===== WARNING =====	'${MDEV}' was still mounted when removed" }
-	s6-setuidgid ${user} xnotify -s 0
+	background {
+		pipeline { s6-echo "===== WARNING =====	'${MDEV}' was still mounted when removed" }
+		s6-setuidgid ${user} xnotify -s 0
+	}
 }
 
 # remove any associated /media/* directory we created

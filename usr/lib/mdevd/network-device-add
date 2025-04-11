@@ -8,8 +8,8 @@
 #
 # this script will not write to /etc/mactab.
 # if NEWMAC is 'random', macchanger -a will be invoked
-# DOGGY: dhcpcd is not tested yet
 # if IP is 'dhcpcd' then 's6-svc -U /run/service/dhcpcd' will be invoked
+# TODO: add dhcpd for wifi AP mode
 
 #foreground { redirfd -w 1 /tmp/network-device.env env }
 
@@ -21,18 +21,9 @@ multisubstitute {
 }
 
 redirfd -r 0 /sys/${DEVPATH}/address
-withstdinas -E mac
+withstdinas -D "::NOMAC::" -E mac
 
 foreground { s6-echo "\n=== network-device-add '${INTERFACE}' '${mac}'" }
-
-# if no MAC address, look for special config file
-ifelse -n { eltest ${mac} } {
-	ifelse { eltest -x /usr/lib/mdevd/network-device/${INTERFACE} } {
-		foreground { s6-echo "execing /usr/lib/mdevd/network-device/${INTERFACE}\n${execsalute}" }
-		/usr/lib/mdevd/network-device/${INTERFACE}
-	}
-	s6-echo "interface '${INTERFACE}' has no MAC\n${salute}"
-}
 
 backtick -I -E mactab {
 	sed -e "/^#/d" -e "/^[^ \t]*[ \t]*${mac}/!d" -e "s=[ \t][ \t]*= =g" /etc/mactab
@@ -42,20 +33,23 @@ multidefine ${mactab} { newname oldmac newmac ip gateway }
 
 ifelse -n { eltest $newname } {
 	ifelse { eltest "lo" = ${INTERFACE} } {
-		foreground { ip addr add 127.0.0.1/8 dev lo }
-		foreground { ip link set lo up }
+		foreground { ip -h -s -d -echo addr add 127.0.0.1/8 dev lo brd + }
+		foreground { ip -h -s -d -echo link set lo up }
 		s6-echo "127.0.0.1/8 assigned to dev lo\n${salute}"
+	}
+	ifelse { eltest -x /usr/lib/mdevd/network-device/${INTERFACE} } {
+		foreground { s6-echo "execing /usr/lib/mdevd/network-device/${INTERFACE}\n${execsalute}" }
+		/usr/lib/mdevd/network-device/${INTERFACE}
 	}
 	s6-echo "interface MAC '${mac}' not found in /etc/mactab\n${salute}"
 }
 
 foreground { s6-echo "newname '${newname}'" }
-foreground { ip link set ${INTERFACE} down }
+foreground { ip -h -s -d -echo link set ${INTERFACE} down }
 foreground { ifconfig -v ${INTERFACE} name ${newname} }
 foreground {
 	if { eltest ${newmac} }
-	if -n { eltest "${newmac}" = "${mac}" }
-	if -n { eltest "${newmac}" = "nochange" }
+	if -n { eltest ${newmac} = ${mac} -o ${newmac} = "nochange" -o ${newmac} = "same" }
 	foreground { s6-echo "NEWMAC '${newmac}'" }
 	ifelse { eltest "${newmac}" = "random" } {
 		/sbin/macchanger -a ${newname}
@@ -96,6 +90,6 @@ ifelse { eltest dhcpcd = ${gateway} } {
 	s6-echo "started dhcpcd service\n${salute}"
 }
 foreground { s6-echo "GATEWAY '${gateway}'" }
-foreground { ip route add default via ${gateway} }
+foreground { ip -h -s -d -echo route add default via ${gateway} }
 s6-echo "${salute}"
 
