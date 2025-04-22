@@ -79,7 +79,7 @@ backtick -E mountpoint {
 }
 foreground {
 	if { eltest -d ${mountpoint} }
-	rmdir -v ${mountpoint}
+	s6-rmrf ${mountpoint}
 }
 
 # remove any associated /run/fstab entries we added
@@ -101,7 +101,7 @@ foreground {
 		pipeline { find /dev -type b -ls }
 		sed -e "/ ${MAJOR}, *${MINOR} /!d" -e "s:^.* \\(/dev/.*$\\):\\1:"
 	}
-	rm -fv ${dev}
+	s6-rmrf ${dev}
 }
 
 # remove all orphaned /dev/disk/*/* links

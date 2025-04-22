@@ -9,11 +9,6 @@ multisubstitute {
 # ==== LOG START OF SCRIPT ====
 foreground { s6-echo "\n=== input-remove '${MDEV}'" }
 
-# doggy:
-foreground { s6-echo "  env:" }
-foreground { env }
-foreground { s6-echo "  env-end" }
-
 # remove all orphaned /dev/input/*/* links
 foreground {
 	elglob links /dev/input/*/*
@@ -25,7 +20,7 @@ foreground {
 	}
 	foreground { rm -v ${link} }
 }
-# remove all empty /dev/disk/by-* directories
+# remove all empty /dev/input/by-* directories
 foreground {
 	elglob bydirs /dev/input/*/
 	redirfd -w 2 /dev/null

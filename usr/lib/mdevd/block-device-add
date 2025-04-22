@@ -61,7 +61,8 @@ foreground {
 # if a dm device, get the dm name
 backtick -E dmname {
 	if -t { eltest -r "/sys/${DEVPATH}/dm/name" }
-	cat /sys/${DEVPATH}/dm/name
+	redirfd -r 0 /sys/${DEVPATH}/dm/name
+	s6-cat
 }
 
 # get the destination of /dev/disk/by- symlinks
@@ -75,8 +76,9 @@ backtick -E linkdest {
 # create the /dev/disk/by-diskseq symlink
 foreground {
 	if -t { eltest -r /sys/${DEVPATH}/diskseq }
-	backtick -E diskseq { cat /sys/${DEVPATH}/diskseq }
-	foreground { execline-umask 022 mkdir -p "/dev/disk/by-diskseq" }
+	redirfd -r 0 /sys/${DEVPATH}/diskseq
+	withstdinas -E diskseq
+	foreground { execline-umask 022 s6-mkdir -p "/dev/disk/by-diskseq" }
 	ln -vsnf "${linkdest}" "/dev/disk/by-diskseq/${diskseq}"
 }
 
@@ -110,8 +112,9 @@ backtick -E diskid {
 			# other potential keys: hwrev fwrev cid csd
 			forx -E key { vendor model name rev serial wwid }
 			if -t { eltest -r ${sysdev}/${key} }
+			redirfd -r 0 ${sysdev}/${key}
 			redirfd -w 2 /dev/null
-			cat ${sysdev}/${key}
+			s6-cat
 		}
 		pipeline { tr "\n" "-" }
 		sed -e "s:  *: :g" -e "s:[ /\\\\]:_:g" -e "s:\\([_-]\\)[_-]*:\\1:g" -e "s:[_-]$::"
@@ -124,16 +127,21 @@ backtick -E diskid {
 	foreground { s6-echo -n ${id} }
 	if -t { eltest -r /sys/${DEVPATH}/partition }
 	foreground { s6-echo -n -- "-part" }
-	cat /sys/${DEVPATH}/partition
+	redirfd -r 0 /sys/${DEVPATH}/partition
+	s6-cat
 }
 
 # CREATE '/dev/disk/by-id' SYMLINK
 foreground {
 	if -t { eltest ${diskid} }
-	foreground { execline-umask 022 mkdir -p "/dev/disk/by-id" }
+	foreground { execline-umask 022 s6-mkdir -p "/dev/disk/by-id" }
 	ifelse -n { eltest -e "/dev/disk/by-id/${diskid}" } {
 		ln -vsnf "${linkdest}" "/dev/disk/by-id/${diskid}"
 	}
+	# name collision, same link?
+	backtick -E collision { readlink /dev/disk/by-id/${diskid} }
+	if -n -t { eltest ${collision} = ${linkdest} }
+
 	#bug in elglob if -0 used here
 	elglob -s -n -d \\ lnks "/dev/disk/by-id/${diskid}*"
 	backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }
@@ -142,27 +150,31 @@ foreground {
 
 # CREATE '/dev/disk/by-path' SYMLINK
 foreground {
+	#virtual devices get no path link
+	if -n -t { eltest ${DEVPATH} =~ /virtual/ }
 	backtick -E dp {
-		if -n { eltest ${DEVPATH} =~ /virtual/ }
 		heredoc 0 ${DEVPATH}
 		sed -e "s:^/devices/::"
 		-e "s:/block/.*$::"
 		-e "s:^pci[^/]*/\\([^/]*\\)/[^a-z]*\\([a-z]\\):pci-\\1/\\2:"
 		-e "s:/\\(usb\\|ata\\).*host.*target[^/]*/:/\\1-:"
-		#-e "s:/\\(usb\\|ata\\|\\).*host.*target[^/]*/:/\\1-:"
 		-e "s:/:-:g"
-		#-e "s:^-::"
 	}
 	backtick -E diskpath {
 		foreground { s6-echo -n -- "${dp}" }
 		if -t { eltest -r /sys/${DEVPATH}/partition }
 		foreground { s6-echo -n -- "-part" }
-		cat /sys/${DEVPATH}/partition
+		redirfd -r 0 /sys/${DEVPATH}/partition
+		s6-cat
 	}
-	foreground { execline-umask 022 mkdir -p "/dev/disk/by-path" }
+	foreground { execline-umask 022 s6-mkdir -p "/dev/disk/by-path" }
 	ifelse -n { eltest -e "/dev/disk/by-path/${diskpath}" } {
 		ln -vsnf "${linkdest}" "/dev/disk/by-path/${diskpath}"
 	}
+	# name collision, same link?
+	backtick -E collision { readlink /dev/disk/by-path/${diskpath} }
+	if -n -t { eltest ${collision} = ${linkdest} }
+
 	ifelse -n { eltest -e "/dev/disk/by-path/${diskpath}_" } {
 		ln -vsnf "${linkdest}" "/dev/disk/by-path/${diskpath}_"
 	}
@@ -216,9 +228,13 @@ foreground {
 	forx -E pair { ${splitlnkid} }
 	multidefine -d = ${pair} { keyupper value }
 	backtick -E key { heredoc 0 ${keyupper} tr A-Z a-z }
-	foreground { execline-umask 022	mkdir -p "/dev/disk/by-${key}" }
+	foreground { execline-umask 022	s6-mkdir -p "/dev/disk/by-${key}" }
 	# append underscores to names to avoid collision
 	ifelse { eltest -e "/dev/disk/by-${key}/${value}" } {
+		# name collision, same link?
+		backtick -E collision { readlink /dev/disk/by-${key}/${value} }
+		if -n -t { eltest ${collision} = ${linkdest} }
+
 		#bug in elglob if -0 used here
 		elglob -s -n -d \\ lnks "/dev/disk/by-${key}/${value}*"
 		backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }
@@ -259,7 +275,9 @@ ifelse { eltest "${TYPE}" = "\\${TYPE}" } {
 ifelse { eltest ${TYPE} = "swap" } {
 	foreground { s6-echo "swap partition" }
 	redirfd -w 2 /dev/null
-	foreground { swapon -av -T /etc/fstab.boot }
+#	foreground { swapon -av -T /etc/fstab.boot }
+	foreground { s6-swapon -a }
+	foreground { free -h }
 	s6-echo "${salute}"
 }
 
@@ -302,7 +320,7 @@ ifelse { grep -q "\t${TYPE}$" /proc/filesystems } {
 		}
 		s6-echo "${mpoint}"
 	}
-	ifelse -n { mkdir -v -p -m 0 /media/${mountpoint} } {
+	ifelse -n { s6-mkdir -v -p -m 0 /media/${mountpoint} } {
 		# abort if problem making the mount point
 		s6-echo "failed mkdir -v -p -m 0 /media/${mountpoint}\n${salute}"
 	}

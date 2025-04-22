@@ -55,6 +55,10 @@ foreground {
 	ifelse -n { eltest -e /dev/input/by-id/${inputid} } {
 		ln -vsnf "../${DEV}" "/dev/input/by-id/${inputid}"
 	}
+	# name collision, same link?
+	backtick -E collision { readlink /dev/input/by-id/${inputid} }
+	if -n -t { eltest ${collision} = ${DEV} }
+
 	#bug in elglob if -0 used here
 	elglob -s -n -d \\ lnks "/dev/input/by-id/${inputid}*"
 	backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }

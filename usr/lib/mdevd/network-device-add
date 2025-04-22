@@ -46,7 +46,7 @@ ifelse -n { eltest $newname } {
 
 foreground { s6-echo "newname '${newname}'" }
 foreground { ip -h -s -d -echo link set ${INTERFACE} down }
-foreground { ifconfig -v ${INTERFACE} name ${newname} }
+foreground { ip -h -s -d -echo link set ${INTERFACE} name ${newname} }
 foreground {
 	if { eltest ${newmac} }
 	if -n { eltest ${newmac} = ${mac} -o ${newmac} = "nochange" -o ${newmac} = "same" }
