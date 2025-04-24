@@ -101,10 +101,12 @@ backtick -E PDEV {
 
 backtick -E diskid {
 	# TRANSPORT
-	if -t { eltest -d /sys/block/${PDEV}/device/ }
-	elglob -s procname /sys/block/${PDEV}/device/../../*/*/proc_name
-	redirfd -r 0 ${procname} withstdinas -E proc_name
 	backtick -D ? -E transport {
+		if -t { eltest -d /sys/block/${PDEV}/device/ }
+		# doggy apparently there's no proc_name on some kernels....
+		elglob -s procname /sys/block/${PDEV}/device/../../*/*/proc_name
+		if -n -t { eltest ${procname} =~ [*] }
+		redirfd -r 0 ${procname} withstdinas -E proc_name
 		case ${proc_name} {
 			ahci.* { s6-echo sata }
 			pata.* { s6-echo pata }

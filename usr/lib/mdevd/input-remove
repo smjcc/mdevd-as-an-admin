@@ -14,7 +14,7 @@ foreground {
 	elglob links /dev/input/*/*
 	forx -E -x 77 link { ${links} }
 	if -n -t { eltest -e ${link} }
-	s6-rmrf ${link} }
+	s6-rmrf ${link}
 }
 # remove all empty /dev/input/by-* directories
 foreground {
