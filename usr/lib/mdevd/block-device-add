@@ -103,9 +103,13 @@ backtick -E diskid {
 	# TRANSPORT
 	backtick -D ? -E transport {
 		if -t { eltest -d /sys/block/${PDEV}/device/ }
-		# doggy apparently there's no proc_name on some kernels....
 		elglob -s procname /sys/block/${PDEV}/device/../../*/*/proc_name
-		if -n -t { eltest ${procname} =~ [*] }
+		# trying to avoid lsblk, but some kernels have no proc_name
+		# (you might want to prefer lsblk over proc_name)
+		ifelse { eltest ${procname} =~ [*] } {
+			if -t { eltest -x /usr/bin/lsblk }
+			lsblk -nd /dev/${PDEV} -o "TRAN"
+		}
 		redirfd -r 0 ${procname} withstdinas -E proc_name
 		case ${proc_name} {
 			ahci.* { s6-echo sata }
@@ -119,10 +123,6 @@ backtick -E diskid {
 		#doggy this is wrong... check for usb another way
 		s6-echo ${proc_name}
 	}
-#	backtick -D ? -E transport {
-#		if { eltest -x /usr/bin/lsblk }
-#		lsblk -nd /dev/${PDEV} -o "TRAN"
-#	}
 	# build id from VENDOR MODEL NAME REV SERIAL WWID
 	backtick -E id {
 		pipeline {
