@@ -13,18 +13,14 @@ foreground { s6-echo "\n=== input-remove '${MDEV}'" }
 foreground {
 	elglob links /dev/input/*/*
 	forx -E -x 77 link { ${links} }
-	if -n -t {
-		redirfd -w 1 /dev/null
-		fdmove -c 2 1
-		readlink -e ${link}
-	}
-	foreground { rm -v ${link} }
+	if -n -t { eltest -e ${link} }
+	s6-rmrf ${link} }
 }
 # remove all empty /dev/input/by-* directories
 foreground {
 	elglob bydirs /dev/input/*/
 	redirfd -w 2 /dev/null
-	rm -dv ${bydirs}
+	rmdir -p ${bydirs}
 }
 
-s6-echo "^^^^"
+s6-echo "^^^"

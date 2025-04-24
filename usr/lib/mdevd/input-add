@@ -28,7 +28,7 @@ foreground {
 		heredoc 0 ${MDEV}
 		sed -e "s:^input/::"
 	}
-	ln -vsnf "../${DEV}" "/dev/input/by-path/${inputpath}"
+	s6-ln -snf "../${DEV}" "/dev/input/by-path/${inputpath}"
 }
 
 # construct inputid
@@ -53,16 +53,20 @@ ifelse -n { eltest ${inputid} } {
 foreground {
 	foreground { execline-umask 022 mkdir -p "/dev/input/by-id" }
 	ifelse -n { eltest -e /dev/input/by-id/${inputid} } {
-		ln -vsnf "../${DEV}" "/dev/input/by-id/${inputid}"
+		s6-ln -snf "../${DEV}" "/dev/input/by-id/${inputid}"
 	}
 	# name collision, same link?
 	backtick -E collision { readlink /dev/input/by-id/${inputid} }
 	if -n -t { eltest ${collision} = ${DEV} }
+	foreground { s6-echo "by-id-collision" }	
 
+	ifelse -n { eltest -e /dev/input/by-id/${inputid}_ } {
+		s6-ln -snf "../${DEV}" "/dev/input/by-id/${inputid}_"
+	}
 	#bug in elglob if -0 used here
-	elglob -s -n -d \\ lnks "/dev/input/by-id/${inputid}*"
+	elglob -s -n -d \\ lnks "/dev/input/by-id/${inputid}_*"
 	backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }
-	ln -vsnf "../${DEV}" "${lnk}_"
+	s6-ln -snf "../${DEV}" "${lnk}_"
 }
 
 ifelse { eltest -x /usr/lib/mdevd/input/${inputid} } {

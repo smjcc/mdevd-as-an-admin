@@ -10,6 +10,9 @@
 # if NEWMAC is 'random', macchanger -a will be invoked
 # if IP is 'dhcpcd' then 's6-svc -U /run/service/dhcpcd' will be invoked
 # TODO: add dhcpd for wifi AP mode
+#
+# dropped '-h -s -d -echo ' options from 'ip' commands
+# to allow use by busybox 'ip'
 
 #foreground { redirfd -w 1 /tmp/network-device.env env }
 
@@ -33,8 +36,8 @@ multidefine ${mactab} { newname oldmac newmac ip gateway }
 
 ifelse -n { eltest $newname } {
 	ifelse { eltest "lo" = ${INTERFACE} } {
-		foreground { ip -h -s -d -echo addr add 127.0.0.1/8 dev lo brd + }
-		foreground { ip -h -s -d -echo link set lo up }
+		foreground { ip addr add 127.0.0.1/8 dev lo brd + }
+		foreground { ip link set lo up }
 		s6-echo "127.0.0.1/8 assigned to dev lo\n${salute}"
 	}
 	ifelse { eltest -x /usr/lib/mdevd/network-device/${INTERFACE} } {
@@ -45,8 +48,8 @@ ifelse -n { eltest $newname } {
 }
 
 foreground { s6-echo "newname '${newname}'" }
-foreground { ip -h -s -d -echo link set ${INTERFACE} down }
-foreground { ip -h -s -d -echo link set ${INTERFACE} name ${newname} }
+foreground { ip link set ${INTERFACE} down }
+foreground { ip link set ${INTERFACE} name ${newname} }
 foreground {
 	if { eltest ${newmac} }
 	if -n { eltest ${newmac} = ${mac} -o ${newmac} = "nochange" -o ${newmac} = "same" }
@@ -78,9 +81,9 @@ foreground {
 		foreground { s6-echo "starting dhcpcd service" }
 		s6-svc -U /run/service/dhcpcd
 	}
-	ip -h -s -d -echo addr add ${ip} dev ${newname} brd +
+	ip addr add ${ip} dev ${newname} brd +
 }
-foreground { ip -h -s -d -echo link set ${newname} up }
+foreground { ip link set ${newname} up }
 
 ifelse -n { eltest -n ${gateway} } {
 	s6-echo "no gateway field in /etc/mactab\n${salute}"
@@ -90,6 +93,6 @@ ifelse { eltest dhcpcd = ${gateway} } {
 	s6-echo "started dhcpcd service\n${salute}"
 }
 foreground { s6-echo "GATEWAY '${gateway}'" }
-foreground { ip -h -s -d -echo route add default via ${gateway} }
+foreground { ip route add default via ${gateway} }
 s6-echo "${salute}"
 

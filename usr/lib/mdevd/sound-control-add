@@ -1,0 +1,41 @@
+#!/bin/execlineb -P
+# SUBSYSTEM=sound;.*  root:audio 660 +/usr/lib/mdevd/sound-control-add
+
+define salute "^^^^"
+importas -D "" -S MDEV
+if { eltest "${MDEV}" =~ "controlC" }
+
+importas -D "" -S ACTION
+#importas -D "" -S DEVPATH
+foreground { s6-echo "\n=== sound-control-add: '${MDEV}' '${ACTION}'" }
+
+backtick -E control_name {
+	heredoc 0 "${MDEV}" sed -e "s:^.*/::"
+}
+backtick -E numeric_card_id {
+	heredoc 0 "${control_name}" sed -e "s:^.*controlC::"
+}
+ifelse -n { eltest -d /proc/asound/card${numeric_card_id} } {
+	s6-echo "no directory: /proc/asound/card${numeric_card_id}\n${salute}"
+}
+backtick -E card_id {
+	cat /proc/asound/card${numeric_card_id}/id
+}
+foreground { s6-echo "MDEV = '${MDEV}' control_name = '${control_name}' numeric_card_id = '${numeric_card_id}' card_id = '${card_id}'" }
+
+ifelse -n { eltest $card_id } { s6-echo "no card_id\n${salute}" }
+
+ifelse -n { eltest -f /var/lib/alsa/asound.state } {
+	s6-echo "No mixer config in /var/lib/alsa/asound.state, you have to unmute your card!\n${salute}"
+}
+
+foreground {
+	if -n -t { eltest -d /run/alsasound }
+	s6-mkdir -v -m 0700 /run/alsasound
+}
+foreground { s6-echo "restoring card ${card_id}" }
+foreground { s6-echo "/usr/sbin/alsactl -E HOME=/run/alsasound restore ${card_id}" }
+ifelse { /usr/sbin/alsactl -E HOME=/run/alsasound restore ${card_id} } {
+	s6-echo "successful\n${salute}"
+}
+s6-echo "Errors while restoring defaults on card ${card_id}, ignoring\n${salute}"

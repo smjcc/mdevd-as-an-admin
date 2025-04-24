@@ -5,14 +5,14 @@
 
 # * removes /dev/disk/by-*
 # * encrypted partitions: unmount and cryptsetup remove
-# * mountable partitions: unmount, remove dir in /media/ and entry in /run/fstab
+# * mountable partitions: unmount, remove dir in /media/ and entry in /etc/fstab
 
 multisubstitute {
 #	importas -D "" -S ACTION
 	importas -D "" -S MDEV
-#	importas -D "" -S DEVPATH
-#	importas -D "" -S MAJOR
-#	importas -D "" -S MINOR
+	importas -D "" -S DEVPATH
+	importas -D "" -S MAJOR
+	importas -D "" -S MINOR
 	define salute "^^^^"
 	define fstabsig "smjmount"
 }
@@ -20,76 +20,76 @@ execline-umask 077
 export DISPLAY ":0"
 
 foreground { s6-echo " === block-device-remove '${MDEV}'" }
-# remove this?
-ifelse -n { eltest -n ${MDEV} } {
-	s6-echo "???? no MDEV DEFINED!!!!\n${salute}"
-}
 # is X11 running?
 backtick -E user {
 	if -t { eltest -f /tmp/.X0-lock }
 	stat /tmp/.X0-lock -c %U
 }
 
-# if a slave, unmount and remove the master dm device
+# if a slave, remove the master (you cannot be a slave to two masters)
 foreground {
-	elglob slave /sys/devices/virtual/block/*/slaves/${MDEV}
-	ifelse -n { eltest ${slave} =~ [*] } {
-		backtick -E master {
-			heredoc 0 ${slave}
-			sed -e "s:^/sys/devices/virtual/block/\\(.*\\)/slaves/${MDEV}$:\\1:"
-		}
-		foreground { s6-echo "'${MDEV}' is a slave to '${master}'" }
-		# is master mounted?
-		ifelse -n { redirfd -w 1 /dev/null findmnt -no target /dev/${master} } {
-			#no? remove it
-			foreground { s6-echo "removing master '${master}'" }
-			dmsetup -v remove --deferred /dev/${master}
-		}
-		#yes? attempt graceful recovery
-		foreground { s6-echo "WARNING: '${master}' was mounted when '${MDEV}' was removed" }
-		foreground { umount -v -A -l /dev/${master} }
-		foreground { dmsetup -v remove --deferred /dev/${master} }
-		# if X, report mounted yank
-		if { eltest -n ${user} }
-		background {
-			pipeline { s6-echo "===== WARNING =====	device '${MDEV}' was still mounted (encrypted) when removed" }
-			s6-setuidgid ${user} xnotify -s 0
-		}
+	elglob masterpath /sys/devices/virtual/block/*/slaves/${MDEV}
+	if -n -t { eltest ${masterpath} =~ [*] }
+	backtick -E master {
+		heredoc 0 ${masterpath}
+		sed -e "s:^/sys/devices/virtual/block/\\(.*\\)/slaves/${MDEV}$:\\1:"
 	}
-	# not a slave, mounted?
-	if { redirfd -w 1 /dev/null findmnt -no target /dev/${MDEV} }
+	foreground { s6-echo "'${MDEV}' is a slave to '${master}', removing" }
+	redirfd -w 1 /sys/devices/virtual/block/${master}/uevent
+	s6-echo remove
+}
+
+# mounted?
+foreground {
+	backtick -E mountpoints {
+		redirfd -r 0 /proc/self/mountinfo
+		sed
+		-e "/ ${MAJOR}:${MINOR} /!d"
+		-e "s/^.* ${MAJOR}:${MINOR} [^ ]* \\([^ ]*\\) .*$/\\1/"
+	}
+
+	if -t { eltest ${mountpoints} }
 	foreground { s6-echo "WARNING: ${MDEV} was mounted when removed" }
-	foreground { umount -v -A -l /dev/${MDEV} }
 	# if X, report mounted yank
 	if { eltest -n ${user} }
 	background {
 		pipeline { s6-echo "===== WARNING =====	'${MDEV}' was still mounted when removed" }
 		s6-setuidgid ${user} xnotify -s 0
 	}
+
+	define -d "\n" -s mpts ${mountpoints}
+	forx -E mountpoint { ${mpts} }
+	foreground { s6-echo "unmounting '${mountpoint}' (${MDEV})" }
+	s6-umount ${mountpoint}
+}
+#doggy is there no better way than dmsetup or cryptsetup? what happens with mdadmin devices?
+foreground {
+	redirfd -w 2 /dev/null
+	dmsetup remove /dev/${MDEV}
 }
 
 # remove any associated /media/* directory we created
-backtick -E mountspace {
-	redirfd -r 0 /run/fstab
-	sed -e "/ #${fstabsig}-${MDEV}$/!d" -e s:^[^" "]*" "\\(\[^" "\]*\\)" ".*$:\\1:
-}
 backtick -E mountpoint {
-	heredoc 0 ${mountspace}
-	sed -e "s:\\\\040: :g" -e "s:\\\\011:\t:g"
+	redirfd -r 0 /etc/fstab
+	sed
+	-e "/ #${fstabsig}-${MDEV}$/!d" -e s:^[^" "]*" "\\(\[^" "\]*\\)" ".*$:\\1:
+	-e "s:\\\\040: :g" -e "s:\\\\011:\t:g"
 }
 foreground {
 	if { eltest -d ${mountpoint} }
-	s6-rmrf ${mountpoint}
+	foreground { s6-echo "removing mountpoint '${mountpoint}'" }
+	rmdir ${mountpoint}
 }
 
-# remove any associated /run/fstab entries we added
+# remove any associated /etc/fstab entries we added
 foreground {
-	if { grep -q "#${fstabsig}-${MDEV}$" /run/fstab }
+	if { redirfd -r 0 /etc/fstab s6-grep -q "#${fstabsig}-${MDEV}$" }
 	backtick -E fstab {
-		grep -v "#${fstabsig}-${MDEV}$" /run/fstab
+		redirfd -r 0 /etc/fstab
+		s6-grep -v "#${fstabsig}-${MDEV}$"
 	}
 	foreground {
-		redirfd -w 1 /run/fstab
+		redirfd -w 1 /etc/fstab
 		s6-echo "${fstab}"
 	}
 	s6-echo "removed fstab entry for '${MDEV}'"
@@ -97,28 +97,26 @@ foreground {
 
 # remove all block devices in /dev with this MAJOR:MINOR
 foreground {
-	forbacktickx -E dev {
-		pipeline { find /dev -type b -ls }
-		sed -e "/ ${MAJOR}, *${MINOR} /!d" -e "s:^.* \\(/dev/.*$\\):\\1:"
-	}
-	s6-rmrf ${dev}
+	forbacktickx -E blockdev { find /dev -type b }
+	backtick -E maj { stat ${blockdev} -c %t }
+	if -t { eltest ${MAJOR} = ${maj} }
+	backtick -E min { stat ${blockdev} -c %T }
+	if -t { eltest ${MINOR} = ${min} }
+	s6-rmrf ${blockdev}
 }
 
 # remove all orphaned /dev/disk/*/* links
 foreground {
-	elglob links /dev/disk/*/*
-	forx -E -x 77 link { ${links} }
-	if -n -t {
-		redirfd -w 1 /dev/null
-		fdmove -c 2 1
-		readlink -e ${link}
-	}
-	foreground { rm -v ${link} }
+	elglob -0 links /dev/disk/*/*
+	forx -E link { ${links} }
+	if -n -t { eltest -e ${link} }
+	s6-rmrf ${link}
 }
-# remove all empty /dev/disk/by-* directories
+
+# remove all empty /dev/disk/*/ directories
 foreground {
-	elglob bydirs /dev/disk/by-*/
+	elglob bydirs /dev/disk/*/
 	redirfd -w 2 /dev/null
-	rm -dv ${bydirs}
+	rmdir -p ${bydirs}
 }
 s6-echo "${salute}"

@@ -18,14 +18,15 @@ multisubstitute {
 	define delay 10
 	define new_read_ahead_kb 2048
 	define fstabsig "smjmount"
-	define salute "^^^^"
-	define execsalute "----"
+	define salute "^^^"
+	define execsalute "---"
 
 #	importas -D "" -S ACTION
 	importas -D "" -S MDEV
 	importas -D "" -S DEVPATH
 	importas -D "" -S MAJOR
 	importas -D "" -S MINOR
+	importas -D "" -S DISKSEQ
 }
 
 execline-umask 077
@@ -44,7 +45,6 @@ backtick -E user {
 
 # ==== LOG START OF SCRIPT ====
 foreground { s6-echo "\n=== block-device-add '${MDEV}'" }
-#foreground { s6-echo "${DEVPATH}" }
 
 # set_readahead
 foreground {
@@ -75,11 +75,9 @@ backtick -E linkdest {
 
 # create the /dev/disk/by-diskseq symlink
 foreground {
-	if -t { eltest -r /sys/${DEVPATH}/diskseq }
-	redirfd -r 0 /sys/${DEVPATH}/diskseq
-	withstdinas -E diskseq
+	if -t { eltest ${DISKSEQ} }
 	foreground { execline-umask 022 s6-mkdir -p "/dev/disk/by-diskseq" }
-	ln -vsnf "${linkdest}" "/dev/disk/by-diskseq/${diskseq}"
+	s6-ln -snf "${linkdest}" "/dev/disk/by-diskseq/${DISKSEQ}"
 }
 
 # Collect data to build the '/dev/disk/by-id' and '/dev/disk/by-path' symlinks
@@ -103,9 +101,26 @@ backtick -E PDEV {
 
 backtick -E diskid {
 	# TRANSPORT
-	backtick -E transport {
-		lsblk -nd /dev/${PDEV} -o "TRAN"
+	if -t { eltest -d /sys/block/${PDEV}/device/ }
+	elglob -s procname /sys/block/${PDEV}/device/../../*/*/proc_name
+	redirfd -r 0 ${procname} withstdinas -E proc_name
+	backtick -D ? -E transport {
+		case ${proc_name} {
+			ahci.* { s6-echo sata }
+			pata.* { s6-echo pata }
+			usb.* { s6-echo usb }
+		}
+		ifelse { eltest ${procname} =~ usb } {
+			s6-echo usb
+		}
+		
+		#doggy this is wrong... check for usb another way
+		s6-echo ${proc_name}
 	}
+#	backtick -D ? -E transport {
+#		if { eltest -x /usr/bin/lsblk }
+#		lsblk -nd /dev/${PDEV} -o "TRAN"
+#	}
 	# build id from VENDOR MODEL NAME REV SERIAL WWID
 	backtick -E id {
 		pipeline {
@@ -136,16 +151,20 @@ foreground {
 	if -t { eltest ${diskid} }
 	foreground { execline-umask 022 s6-mkdir -p "/dev/disk/by-id" }
 	ifelse -n { eltest -e "/dev/disk/by-id/${diskid}" } {
-		ln -vsnf "${linkdest}" "/dev/disk/by-id/${diskid}"
+		s6-ln -snf "${linkdest}" "/dev/disk/by-id/${diskid}"
 	}
 	# name collision, same link?
 	backtick -E collision { readlink /dev/disk/by-id/${diskid} }
 	if -n -t { eltest ${collision} = ${linkdest} }
 
+	foreground { s6-echo "by-id-collision" }
+	ifelse -n { eltest -e "/dev/disk/by-id/${diskid}_" } {
+		s6-ln -snf "${linkdest}" "/dev/disk/by-id/${diskid}_"
+	}
 	#bug in elglob if -0 used here
-	elglob -s -n -d \\ lnks "/dev/disk/by-id/${diskid}*"
+	elglob -s -n -d \\ lnks "/dev/disk/by-id/${diskid}_*"
 	backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }
-	ln -vsnf "${linkdest}" "${lnk}_"
+	s6-ln -snf "${linkdest}" "${lnk}_"
 }
 
 # CREATE '/dev/disk/by-path' SYMLINK
@@ -169,19 +188,20 @@ foreground {
 	}
 	foreground { execline-umask 022 s6-mkdir -p "/dev/disk/by-path" }
 	ifelse -n { eltest -e "/dev/disk/by-path/${diskpath}" } {
-		ln -vsnf "${linkdest}" "/dev/disk/by-path/${diskpath}"
+		s6-ln -snf "${linkdest}" "/dev/disk/by-path/${diskpath}"
 	}
 	# name collision, same link?
 	backtick -E collision { readlink /dev/disk/by-path/${diskpath} }
 	if -n -t { eltest ${collision} = ${linkdest} }
-
+	
+	foreground { s6-echo "by-path-collision" }
 	ifelse -n { eltest -e "/dev/disk/by-path/${diskpath}_" } {
-		ln -vsnf "${linkdest}" "/dev/disk/by-path/${diskpath}_"
+		s6-ln -snf "${linkdest}" "/dev/disk/by-path/${diskpath}_"
 	}
 	#bug in elglob if -0 used here
 	elglob -s -n -d \\ lnks "/dev/disk/by-path/${diskpath}_*"
 	backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }
-	ln -vsnf "${linkdest}" "${lnk}_"
+	s6-ln -snf "${linkdest}" "${lnk}_"
 }
 
 # GET BLKID DATA FOR THIS DEVICE INTO LOCAL VARIABLES.
@@ -230,28 +250,38 @@ foreground {
 	backtick -E key { heredoc 0 ${keyupper} tr A-Z a-z }
 	foreground { execline-umask 022	s6-mkdir -p "/dev/disk/by-${key}" }
 	# append underscores to names to avoid collision
-	ifelse { eltest -e "/dev/disk/by-${key}/${value}" } {
-		# name collision, same link?
-		backtick -E collision { readlink /dev/disk/by-${key}/${value} }
-		if -n -t { eltest ${collision} = ${linkdest} }
-
-		#bug in elglob if -0 used here
-		elglob -s -n -d \\ lnks "/dev/disk/by-${key}/${value}*"
-		backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }
-		ln -vsnf "${linkdest}" "${lnk}_"
+	ifelse -n { eltest -e "/dev/disk/by-${key}/${value}" } {
+		s6-ln -snf "${linkdest}" "/dev/disk/by-${key}/${value}"
 	}
-	ln -vsnf "${linkdest}" "/dev/disk/by-${key}/${value}"
+	# name collision, same link?
+	backtick -E collision { readlink /dev/disk/by-${key}/${value} }
+	if -n -t { eltest ${collision} = ${linkdest} }
+
+	foreground { s6-echo "by-${key}-collision" }
+	ifelse -n { eltest -e "/dev/disk/by-${key}/${value}_" } {
+		s6-ln -snf "${linkdest}" "/dev/disk/by-${key}/${value}_"
+	}
+	#bug in elglob if -0 used here
+	elglob -s -n -d \\ lnks "/dev/disk/by-${key}/${value}*"
+	backtick -E lnk { heredoc 0 ${lnks} sed -e s:^.*\\\\:: }
+	s6-ln -snf "${linkdest}" "${lnk}_"
 }
 
 # if device is already in use, do not continue
-ifelse { redirfd -w 1 /dev/null	findmnt -nfo source /dev/${MDEV} } {
+ifelse { redirfd -r 0 /proc/self/mountinfo s6-grep -q " ${MAJOR}:${MINOR} " } {
 	s6-echo "already mounted\n${salute}"
 }
-ifelse { elglob -0 holders /sys/${DEVPATH}/holders/* eltest ${holders} } {
-	s6-echo "already in use\n${salute}"
+ifelse -n {
+	elglob holderpaths /sys/${DEVPATH}/holders/*
+	eltest ${holderpaths} =~ [*]
+} {
+	s6-echo "device has 'holders'\n${salute}"
 }
-ifelse { grep -q "^/dev/\\(${MDEV}\\|mapper/${dmname}\\)[[:space:]]" /etc/fstab } {
+ifelse { redirfd -r 0 /etc/fstab s6-grep -q "^/dev/\\(${MDEV}\\|mapper/${dmname}\\)[[:space:]]" /etc/fstab } {
 	s6-echo "already listed in /etc/fstab\n${salute}"
+}
+ifelse { fuser -s /dev/${MDEV} } {
+	s6-echo "currently in use\n${salute}"
 }
 
 # if device has no TYPE in blkid, just run the script if present
