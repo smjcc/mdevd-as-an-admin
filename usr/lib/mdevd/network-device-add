@@ -17,8 +17,8 @@
 #foreground { redirfd -w 1 /tmp/network-device.env env }
 
 multisubstitute {
-	define salute "^^^^"
-	define execsalute "----"
+	define salute "^^^"
+	define execsalute "---"
 	importas -S -D "" DEVPATH
 	importas -S -D "" INTERFACE
 }

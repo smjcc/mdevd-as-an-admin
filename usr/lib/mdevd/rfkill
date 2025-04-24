@@ -4,7 +4,7 @@
 # act on rfkill state changes to enable/disable iwd
 
 multisubstitute {
-	define salute "^^^^"
+	define salute "^^^"
 	importas -D "" -S MDEV
 #	importas -D "" -S DEVPATH
 	importas -D "" -S ACTION

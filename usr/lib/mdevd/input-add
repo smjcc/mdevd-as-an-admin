@@ -73,4 +73,4 @@ ifelse { eltest -x /usr/lib/mdevd/input/${inputid} } {
 	foreground { s6-echo "execing: /usr/lib/mdevd/input/${inputid}\n----" }
 	/usr/lib/mdevd/input/${inputid}
 }
-s6-echo "^^^^"
+s6-echo "^^^"

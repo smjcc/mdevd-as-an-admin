@@ -42,7 +42,7 @@ foreground {
 	}
 
 	# already authorized?
-	ifelse -n { grep -q ^0$ /sys/${DEVPATH}/authorized } {
+	ifelse -n { redirfd -r 0 /sys/${DEVPATH}/authorized s6-grep -q ^0$ } {
 		s6-echo "USB device ${MDEV} '${idVendor}:${idProduct}' already authorized"
 	}
 
@@ -65,7 +65,7 @@ foreground {
 	}
 
 	# check if listed in /etc/usbauth to authorize
-	ifelse -X { grep ${idVendor}:${idProduct},${serial},${manufacturer},${product},${descriptors} /etc/usbauth } {
+	ifelse -X { redirfd -r 0 /etc/usbauth s6-grep ${idVendor}:${idProduct},${serial},${manufacturer},${product},${descriptors} } {
 		# authorize this device
 		foreground {
 			redirfd -w 1 /sys/${DEVPATH}/authorized

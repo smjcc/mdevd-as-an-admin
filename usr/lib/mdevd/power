@@ -7,7 +7,7 @@
 # AC-on: fast bright  AC-off slow dim
 
 multisubstitute {
-	define salute "^^^^"
+	define salute "^^^"
 	define BRIGHT 300
 	define DIM 75
 	define backlight intel_backlight

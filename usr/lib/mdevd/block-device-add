@@ -277,7 +277,7 @@ ifelse -n {
 } {
 	s6-echo "device has 'holders'\n${salute}"
 }
-ifelse { redirfd -r 0 /etc/fstab s6-grep -q "^/dev/\\(${MDEV}\\|mapper/${dmname}\\)[[:space:]]" /etc/fstab } {
+ifelse { redirfd -r 0 /etc/fstab s6-grep -q "^/dev/\\(${MDEV}\\|mapper/${dmname}\\)[[:space:]]" } {
 	s6-echo "already listed in /etc/fstab\n${salute}"
 }
 ifelse { fuser -s /dev/${MDEV} } {

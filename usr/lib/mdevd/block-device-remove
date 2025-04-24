@@ -13,7 +13,7 @@ multisubstitute {
 	importas -D "" -S DEVPATH
 	importas -D "" -S MAJOR
 	importas -D "" -S MINOR
-	define salute "^^^^"
+	define salute "^^^"
 	define fstabsig "smjmount"
 }
 execline-umask 077
@@ -65,7 +65,7 @@ foreground {
 #doggy is there no better way than dmsetup or cryptsetup? what happens with mdadmin devices?
 foreground {
 	redirfd -w 2 /dev/null
-	dmsetup remove /dev/${MDEV}
+	dmsetup -v remove --deferred /dev/${MDEV}
 }
 
 # remove any associated /media/* directory we created

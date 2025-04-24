@@ -1,16 +1,18 @@
 # mdevd-as-an-admin
 
-A replacement for [sys-fs/udev][1] or [sys-apps/systemd-utils[udev]][1] using skarnet's [mdevd][2] and [execline][3]. Manages networks, filesystems, USB device authentication, and power events, without [dbus][4], [systemd][1], [pam][5], or [logind][6].
+A replacement for [sys-fs/udev][1] or [sys-apps/systemd-utils[udev]][1] using skarnet's [mdevd][2] and [execline][3]. Manages networks, filesystems (including [LUKS][12]), USB device authentication, and power events, without [dbus][4], [systemd][1], [pam][5], or [logind][6].
 
 The base objectives of this project are to remove all dependencies on the above cruft (systemd&friends), and to improve security by reducing complexity to auditable levels. To ensure maximal user control, all code is simple scripting.  These scripts are written in [execline][3] to remove the complexities of auditing the security of a shell interpreter. The user can easily replace them with his own shell scripts, if desired.
 
 To use this code, most people will need to be very hands-on in their system administration, and adjust code to their needs.  However, specialized complete distributions using this code may be released for specific targets.
 
+This is my daily driver on my personal system, and all my servers. One class of servers running this code is a 486 with 16MB of ram, booting from an 8MB CF which holds two kernels, and two independent root filesystems. This allows remote updates, with fallback on failure.
+
 ## `/etc/mdevd.conf`
 
 [mdevd][2] configuration is in `/etc/mdevd.conf` (note that mdevd defaults to `/etc/mdev.conf`, either rename it, or reference it when invoking mdevd)  This file references multiple execline scripts located in `/usr/lib/mdevd/`.
 
-These scripts will also maintain `/dev/\*/by-\*/\*` symlinks, `/etc/fstab` entries, and mountpoints at `/media/*` for those entries. By default these mountpoints can then be mounted and unmounted by unprivileged users.
+These scripts will also maintain `/dev/*/by-*/*` symlinks, `/etc/fstab` entries, and mountpoints at `/media/*` for those entries. By default these mountpoints can then be mounted and unmounted by unprivileged users.
 
 ## `/etc/mactab`
 
@@ -36,7 +38,7 @@ Only the first two fields are mandatory, for backward compatibility with `nameif
 
 ## `/etc/usbauth`
 
-When unauthorized USB devices are connected, a hopefully unique identifier string is constructed from device's attributes.  If this string occurs in the `/etc/usbauth` file, then the device will be authorized.  A simple 'grep' is used, so all text outside the string is considered 'comment'.  If not found, the constructed string will be printed to mdevd standard out, normally a log file.  To add authentication for a new device, copy the string from the log file to `/etc/usbauth`, and add comments to taste.
+When unauthorized USB devices are connected, a hopefully unique identifier string is constructed from the device's attributes.  If this string occurs in the `/etc/usbauth` file, then the device will be authorized.  A simple 'grep' is used, so all text outside the string is considered 'comment'.  If not found, the constructed string will be printed to mdevd standard out, normally a log file.  To add authentication for a new device, copy the string from the log file to `/etc/usbauth`, and add comments to taste.
 
 ## `/usr/lib/mdevd/`
 
@@ -68,3 +70,4 @@ This is the directory where the execline scripts are located. They are:
 [9]: https://github.com/alobbs/macchanger
 [10]: https://roy.marples.name/projects/dhcpcd/
 [11]: https://github.com/illiliti/eiwd
+[12]: https://en.wikipedia.org/wiki/Linux_Unified_Key_Setup
