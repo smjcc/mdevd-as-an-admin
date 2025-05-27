@@ -215,13 +215,13 @@ backtick -E blkid {
 }
 ifelse -n { eltest -n ${blkid} } {
 	foreground { s6-echo "device has no blkid data" }
-	ifelse { eltest ${diskid} -a -x /usr/lib/mdevd/${diskid} } {
-		foreground { s6-echo "exec /usr/lib/mdevd/${diskid}\n${execsalute}" }
-		/usr/lib/mdevd/${diskid}
+	ifelse { eltest ${diskid} -a -x /usr/lib/mdevd/block-device/${diskid} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/block-device/${diskid}\n${execsalute}" }
+		/usr/lib/mdevd/block-device/${diskid}
 	}
-	ifelse { eltest -x /usr/lib/mdevd/${MDEV} } {
-		foreground { s6-echo "exec /usr/lib/mdevd/${MDEV}\n${execsalute}" }
-		/usr/lib/mdevd/${MDEV}
+	ifelse { eltest -x /usr/lib/mdevd/block-device/${MDEV} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/block-device/${MDEV}\n${execsalute}" }
+		/usr/lib/mdevd/block-device/${MDEV}
 	}
 	s6-echo "${salute}"
 }
@@ -288,14 +288,14 @@ ifelse { fuser -s /dev/${MDEV} } {
 
 # if device has no TYPE in blkid, just run the script if present
 ifelse { eltest "${TYPE}" = "\\${TYPE}" } {
-	# no type. If /usr/lib/mdevd/${MDEV}, exec
-	ifelse { eltest ${diskid} -a -x /usr/lib/mdevd/${diskid} } {
-		foreground { s6-echo "exec /usr/lib/mdevd/${diskid}\n${execsalute}" }
-		/usr/lib/mdevd/${diskid}
+	# no type. If /usr/lib/mdevd/block-device/${MDEV}, exec
+	ifelse { eltest ${diskid} -a -x /usr/lib/mdevd/block-device/${diskid} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/block-device/${diskid}\n${execsalute}" }
+		/usr/lib/mdevd/block-device/${diskid}
 	}
-	ifelse { eltest -x /usr/lib/mdevd/${MDEV} } {
-		foreground { s6-echo "exec /usr/lib/mdevd/${MDEV}\n${execsalute}" }
-		/usr/lib/mdevd/${MDEV}
+	ifelse { eltest -x /usr/lib/mdevd/block-device/${MDEV} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/block-device/${MDEV}\n${execsalute}" }
+		/usr/lib/mdevd/block-device/${MDEV}
 	}
 	s6-echo "device '${MDEV}' has no TYPE defined in blkid\n${salute}"
 }
@@ -373,13 +373,13 @@ ifelse { grep -q "\t${TYPE}$" /proc/filesystems } {
 # check if TYPE is crypto_LUKS...
 ifelse -n { eltest ${TYPE} = "crypto_LUKS" } {
 	s6-echo "device has unrecognized type '${TYPE}' in blkid"
-	ifelse { eltest ${diskid} -a -x /usr/lib/mdevd/${diskid} } {
-		foreground { s6-echo "exec /usr/lib/mdevd/${diskid}\n${execsalute}" }
-		/usr/lib/mdevd/${diskid}
+	ifelse { eltest ${diskid} -a -x /usr/lib/mdevd/block-device/${diskid} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/block-device/${diskid}\n${execsalute}" }
+		/usr/lib/mdevd/block-device/${diskid}
 	}
-	ifelse { eltest -x /usr/lib/mdevd/${MDEV} } {
-		foreground { s6-echo "exec /usr/lib/mdevd/${MDEV}\n${execsalute}" }
-		/usr/lib/mdevd/${MDEV}
+	ifelse { eltest -x /usr/lib/mdevd/block-device/${MDEV} } {
+		foreground { s6-echo "exec /usr/lib/mdevd/block-device/${MDEV}\n${execsalute}" }
+		/usr/lib/mdevd/block-device/${MDEV}
 	}
 	s6-echo "${salute}"
 }
