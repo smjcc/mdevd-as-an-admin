@@ -5,8 +5,8 @@
 # * create /dev/bus/usb devices.
 
 multisubstitute {
-	define salute "^^^^"
-	define execsalute "----"
+	define salute "^^^"
+	define execsalute "---"
 #	importas -D "" -S ACTION
 	importas -D "" -S MDEV
 	importas -D "" -S DEVPATH
